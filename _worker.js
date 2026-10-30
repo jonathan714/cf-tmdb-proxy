@@ -41,11 +41,9 @@ export default {
 
     // ========== API 接口逻辑（api_key由外部传入，原样携带） ==========
     if (targetHost === "api.themoviedb.org") {
-      // 缓存key：路径 + 全部query参数（包含传入的api_key，不同key分开缓存）
       const cacheKey = `${path}?${searchParams.toString()}`;
       cleanCache();
 
-      // 命中内存缓存
       if (cacheMap.has(cacheKey)) {
         const cached = cacheMap.get(cacheKey);
         if (cached.expire > Date.now()) {
@@ -60,15 +58,16 @@ export default {
         }
       }
 
-      // 未命中缓存，构造上游请求，api_key原样透传
-      const upstreamUrl = new URL(`https://api.themoviedb.org${path.replace(/^\/api/, "")}`);
+      // 去掉 /api 前缀
+      const upstreamPath = path.slice(4);
+      const upstreamUrl = new URL(`https://api.themoviedb.org${upstreamPath}`);
       upstreamUrl.search = searchParams.toString();
 
       const headers = new Headers(request.headers);
       headers.set("Host", "api.themoviedb.org");
       headers.set("Referer", "https://www.themoviedb.org");
-      headers.set("X-Real-IP", request.headers.get("cf-connecting-ip"));
-      headers.set("X-Forwarded-For", request.headers.get("cf-connecting-ip"));
+      headers.set("X-Real-IP", request.headers.get("cf-connecting-ip") || "");
+      headers.set("X-Forwarded-For", request.headers.get("cf-connecting-ip") || "");
 
       const upstreamReq = new Request(upstreamUrl, {
         method: request.method,
@@ -79,7 +78,6 @@ export default {
 
       const res = await fetch(upstreamReq);
 
-      // 只有成功响应才写入内存缓存，429/404等异常不缓存
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json") || contentType.includes("text")) {
@@ -103,9 +101,10 @@ export default {
       return res;
     }
 
-    // ========== 图片接口逻辑，走CF边缘缓存，不进内存缓存 ==========
+    // ========== 图片接口逻辑（改用slice，稳定去掉 /image） ==========
     if (targetHost === "image.tmdb.org") {
-      const upstreamUrl = new URL(`https://image.tmdb.org${path.replace(/^\/image/, "")}`);
+      const upstreamPath = path.slice(6); // 切掉前面 "/image"
+      const upstreamUrl = new URL(`https://image.tmdb.org${upstreamPath}`);
       upstreamUrl.search = reqUrl.search;
 
       const headers = new Headers(request.headers);
